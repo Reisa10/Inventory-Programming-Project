@@ -21,7 +21,6 @@ create_if_not_exists(Sales_Database, ["sale_id","date","product_id","quantity","
 create_if_not_exists(User_Database, ["username","password","role"])
 create_if_not_exists(Movement_Database, ["movement_id","product_id","movement_type","quantity","date","remarks"])
 
-
 wb1 = load_workbook(Inventory_Database)
 ws1 = wb1.active
 wb2 = load_workbook(Sales_Database)
@@ -64,7 +63,6 @@ def product_name(product_id):
             return row[1] or "-"
     return "-"
 
-
 def login(user,password):
     for row in ws3.iter_rows(min_row = 1,values_only = True):
         if row[0] == user and row[1] == password:
@@ -76,7 +74,6 @@ def checkadmin(role):
         if row[1] == role:
             return True
     return False
-
 
 # IMPROVED ADD AND REMOVE SO IT TRACKS IN LOG MOVEMENTS
 def add_new(product_id, name, category, price, qty, reorder_level):
@@ -94,7 +91,6 @@ def remove_product(product_id):
             return True
     return False
 
-
 # CHANGE get_price(code) TO GET_PRICE(PRODUCT_ID) FOR CONSISTENCY
 def get_price(product_id):
     for row in ws1.iter_rows(min_row=2, values_only=True):
@@ -108,7 +104,6 @@ def check_product(product_id):
         if str(row[0]).strip().upper() == product_id.upper():
             return True
     return False
-
 
 # MOVED "NOT ENOUGH STOCK" MESSAGE TO buy() AND ADDED LOG MOVEMENT
 def update_stock(product_id, qty_sold):
@@ -124,7 +119,6 @@ def update_stock(product_id, qty_sold):
             return True, new_stock
     return False, 0
 
-
 # ADDED AN UNSUCCESSFUL MESSAGE IF STOCK IS INSUFFICIENT
 def buy(cart_items):
 
@@ -139,12 +133,7 @@ def buy(cart_items):
         qty = safe_int(item['qty'])
         success, available = update_stock(pid, qty)
         if not success:
-            return {
-                'success': False,
-                'sale_id': sale_id,
-                'message': f"Not enough stock for {product_name(pid)}. Available: {available}",
-                'items': []
-            }
+            return {'success': False,'sale_id': sale_id,'message': f"Not enough stock for {product_name(pid)}. Available: {available}",'items': []}
 
     # All stock sufficient; proceed with sale
     for item in cart_items:
@@ -155,24 +144,11 @@ def buy(cart_items):
         ws2.append([sale_id, now, pid, qty, price, subtotal])
         log_movement(pid, "SALE", qty, "Customer purchase")
         total_amount += subtotal
-        sale_items.append({
-            'pid': pid,
-            'name': product_name(pid),
-            'qty': qty,
-            'unit_price': price,
-            'total': subtotal
-        })
+        sale_items.append({'pid': pid,'name': product_name(pid),'qty': qty,'unit_price': price,'total': subtotal})
 
     wb2.save(Sales_Database)
 
-    return {
-        'success': True,
-        'sale_id': sale_id,
-        'total_amount': total_amount,
-        'items': sale_items,
-        'message': "Sale completed successfully"
-    }
-
+    return {'success': True,'sale_id': sale_id,'total_amount': total_amount,'items': sale_items,'message': "Sale completed successfully"}
 
 # IMPROVED THE PRINT RECEIPT FOR BETTER READABILITY AND HANDLING OF MULTIPLE ITEMS
 def print_receipt(sale_id):
@@ -183,13 +159,7 @@ def print_receipt(sale_id):
         if row[0] == safe_int(sale_id):
             sale_date = row[1]
             pid = row[2]
-            items.append({
-                'pid': pid,
-                'name': product_name(pid),
-                'qty': safe_int(row[3]),
-                'unit_price': safe_float(row[4]),
-                'total': safe_float(row[5])
-            })
+            items.append({'pid': pid,'name': product_name(pid),'qty': safe_int(row[3]),'unit_price': safe_float(row[4]),'total': safe_float(row[5])})
     if not items:
         return None
     return {'sale_id': safe_int(sale_id), 'date': sale_date, 'items': items}
@@ -201,8 +171,6 @@ def get_pid_by_name(name):
         if pname and pname.strip().title() == name:
             return pid
     return None
-
-
 
 # NEW FUNCTION
 def log_movement(product_id, movement_type, quantity, remarks):
@@ -222,40 +190,19 @@ def save():
 def get_all_products():
     data = []
     for row in ws1.iter_rows(min_row=2, values_only=True):
-        data.append({
-            "product_id": row[0] or "-",
-            "name": row[1] or "-",
-            "category": row[2] or "-",
-            "price": safe_float(row[3]),
-            "stock": safe_int(row[4]),
-            "reorder": safe_int(row[5])
-        })
+        data.append({"product_id": row[0] or "-","name": row[1] or "-","category": row[2] or "-","price": safe_float(row[3]),"stock": safe_int(row[4]),"reorder": safe_int(row[5])})
     return data
 
 def get_all_sales():
     data = []
     for row in ws2.iter_rows(min_row=2, values_only=True):
-        data.append({
-            "sale_id": row[0] or "-",
-            "date": row[1] or "-",
-            "product_id": row[2] or "-",
-            "quantity": safe_int(row[3]),
-            "unit_price": safe_float(row[4]),
-            "total": safe_float(row[5])
-        })
+        data.append({"sale_id": row[0] or "-","date": row[1] or "-","product_id": row[2] or "-","quantity": safe_int(row[3]),"unit_price": safe_float(row[4]),"total": safe_float(row[5])})
     return data
 
 def get_inventory_movements():
     data = []
     for row in ws4.iter_rows(min_row=2, values_only=True):
-        data.append({
-            "movement_id": row[0] or "-",
-            "product_id": row[1] or "-",
-            "type": row[2] or "-",
-            "quantity": safe_int(row[3]),
-            "date": row[4] or "-",
-            "remarks": row[5] or "-"
-        })
+        data.append({"movement_id": row[0] or "-","product_id": row[1] or "-","type": row[2] or "-","quantity": safe_int(row[3]),"date": row[4] or "-","remarks": row[5] or "-"})
     return data
 
 def sales_summary():
@@ -276,11 +223,7 @@ def best_selling_products(top_n=10):
     sorted_sales = sorted(product_sales.items(), key=lambda x: x[1], reverse=True)
     data = []
     for pid, total in sorted_sales[:top_n]:
-        data.append({
-            "product_id": pid,
-            "name": product_name(pid),
-            "total_sold": total
-        })
+        data.append({"product_id": pid,"name": product_name(pid),"total_sold": total})
     return data
 
 def low_stock_alerts():
