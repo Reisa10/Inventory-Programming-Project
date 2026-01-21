@@ -40,16 +40,89 @@ def safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
+# Safe input functions
+def input_int(prompt):
+    while True:
+        value = input(prompt)
+        try:
+            value_int = int(value)
+            if value_int < 0:
+                print("Value cannot be negative. Try again.")
+                continue
+            return value_int
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
+def input_float(prompt):
+    while True:
+        value = input(prompt)
+        try:
+            value_float = float(value)
+            if value_float < 0:
+                print("Value cannot be negative. Try again.")
+                continue
+            return value_float
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
 def log_movement(product_id, movement_type, quantity, remarks):
+    # Ensure product_id and movement_type are valid
+    if not product_id:
+        product_id = "-"
+    if not movement_type:
+        movement_type = "-"
+
+    # Ensure quantity is integer
+    quantity = safe_int(quantity)
+
+    # Generate unique movement_id
+    # Starts at 1 if only headers exist
     movement_id = ws4.max_row
+    if movement_id < 1:
+        movement_id = 1
+    else:
+        movement_id += 1
+
     date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ws4.append([movement_id, product_id, movement_type, quantity, date_now, remarks])
-    wb4.save(Movement_Database)
+    try:
+        wb4.save(Movement_Database)
+    except PermissionError:
+        print("Error: Close the inventory_movements.xlsx file before logging movement.")
+
+def generate_sale_id():
+    # Ensure unique sale ID
+    sale_id = ws2.max_row
+    if sale_id < 1:
+        sale_id = 1
+    else:
+        sale_id += 1
+    return sale_id
 
 def add_new(product_Id, name, category, price, qty, rodlvl):
     ws1.append([product_Id.upper(), name.title(), category.title(), safe_float(price), safe_int(qty), safe_int(rodlvl)])
     wb1.save(Inventory_Database)
     log_movement(product_Id.upper(), "IN", qty, "Initial stock")
+
+def remove_product():
+    pid = input("Enter Product ID to remove: ").strip().upper()
+    for row in ws1.iter_rows(min_row=2):
+        if str(row[0].value).strip().upper() == pid:
+            name = row[1].value if row[1].value else "-"
+            while True:
+                confirm = input(f"Are you sure you want to remove {name}? (y/n): ").strip().lower()
+                if confirm == "y":
+                    ws1.delete_rows(row[0].row, 1)
+                    wb1.save(Inventory_Database)
+                    log_movement(pid, "OUT", 0, "Product removed")
+                    print(f"Product {pid}, {name} removed successfully")
+                    return
+                elif confirm == "n":
+                    print("Removal cancelled")
+                    return
+                else:
+                    print("Invalid input. Please enter 'y' or 'n'.")
+    print("Product not found.")
 
 def change_stock(product_id, new_stock):
     for row in ws1.iter_rows(min_row=2):
@@ -75,7 +148,7 @@ def update_stock(product_id, qty_sold):
             current_stock = safe_int(row[4].value)
             new_stock = current_stock - safe_int(qty_sold)
             if new_stock < 0:
-                print(f"Not enough stock for {product_id}! Only {current_stock} left.")
+                print(f"Not enough stock for {product_name(product_id)}! Only {current_stock} left.")
                 return False
             row[4].value = new_stock
             wb1.save(Inventory_Database)
@@ -95,17 +168,34 @@ def buy(product_id, qty, sale_id):
     log_movement(product_id, "SALE", qty, "Customer purchase")
     return True
 
+def get_pid_by_name(name):
+    name = name.strip().title()  # match formatting in Excel
+    for row in ws1.iter_rows(min_row=2, values_only=True):
+        pid, pname = row[0], row[1]
+        if pname and pname.strip().title() == name:
+            return pid
+    return None
+
 def product_name(product_id):
     for row in ws1.iter_rows(min_row=2, values_only=True):
         if str(row[0]).strip().upper() == product_id.upper():
             return row[1] or "-"
     return "-"
 
-def print_receipt(sales_id):
+def print_receipt(sale_id):
+    items = []
+    sale_date = None
+
     for row in ws2.iter_rows(min_row=2, values_only=True):
-        if row[0] == safe_int(sales_id):
-            return row[2], row[3], row[4], row[5]
-    return None
+        if row[0] == safe_int(sale_id):
+            sale_date = row[1]
+            pid = row[2]
+            items.append({"pid": pid,"name": product_name(pid),"qty": safe_int(row[3]),"price": safe_float(row[4]),"total": safe_float(row[5])})
+    if not items:
+        return None
+    return {"sale_id": safe_int(sale_id),"date": sale_date,"items": items}
+
+
 
 def save():
     wb1.save("Database.xlsx")
@@ -153,11 +243,14 @@ def best_selling_products():
     for row in ws2.iter_rows(min_row=2, values_only=True):
         if row[0] is not None:
             pid = row[2]
-            qty = row[3] if row[3] is not None else 0
-            if pid in product_sales:
-                product_sales[pid] += qty
-            else:
-                product_sales[pid] = qty
+            if pid is None:
+                continue
+            qty = safe_int(row[3])
+            product_sales[pid] = product_sales.get(pid, 0) + qty
+
+    if not product_sales:
+        print("No sales recorded yet.")
+        return
 
     sorted_sales = sorted(product_sales.items(), key=lambda x: x[1], reverse=True)
 
@@ -166,9 +259,7 @@ def best_selling_products():
     print("-"*45)
 
     for pid, total in sorted_sales[:10]: 
-        name = product_name(pid)
-        if name is None:
-            name = "-"  
+        name = product_name(pid) or "-"
         pid = str(pid)
         total = total if total is not None else 0
         print(f"{pid:<10} {name:<20} {total:<10}")
@@ -178,20 +269,24 @@ def low_stock_alert():
     print("\n====== LOW STOCK ALERTS ======")
     print(f"{'Product ID':<10} {'Name':<20} {'Stock':<10} {'Reorder':<10}")
     low_stock_found = False
+
+    low_stock_items = []
+
     for row in ws1.iter_rows(min_row=2, values_only=True):
         pid, name, cat, price, stock, reorder = row
-
-    
-        pid = str(pid) if pid is not None else "-"
-        name = name if name is not None else "-"
+        pid = str(pid).strip() if pid else "-"
+        name = name.strip() if name else "-"
         stock = safe_int(stock)
         reorder = safe_int(reorder)
 
         if stock <= reorder:
-            low_stock_found = True
-            print(f"{pid:<10} {name:<20} {stock:<10} {reorder:<10}")
+            low_stock_items.append((pid, name, stock, reorder))
 
-    if not low_stock_found:
+    if low_stock_items:
+        low_stock_items.sort(key=lambda x: x[2])
+        for pid, name, stock, reorder in low_stock_items:
+            print(f"{pid:<10} {name:<20} {stock:<10} {reorder:<10}")
+    else:
         print("All products have sufficient stock.")
 
 # ----------------- TERMINAL MENU -----------------
@@ -199,82 +294,194 @@ def main_menu():
     while True:
         print("\n====== SALES & INVENTORY SYSTEM ======")
         print("1. Add New Product")
-        print("2. Buy Product")
-        print("3. Change Stock (Manual)")
-        print("4. Check Product Price")
-        print("5. Print Receipt")
-        print("6. List All Products")
-        print("7. List All Sales")
-        print("8. List Inventory Movements")
-        print("9. Sales Summary")
-        print("10. Best-Selling Products")
-        print("11. Low-Stock Alerts")
-        print("12. Exit")
+        print("2. Remove Product")
+        print("3. Buy Product")
+        print("4. Change Stock (Manual)")
+        print("5. Check Product Price")
+        print("6. Print Receipt")
+        print("7. List All Products")
+        print("8. List All Sales")
+        print("9. List Inventory Movements")
+        print("10. Sales Summary")
+        print("11. Best-Selling Products")
+        print("12. Low Stock Alerts")
+        print("13. Exit")
 
 
         choice = input("Select option: ")
 
         if choice == "1":
             pid = input("Product ID: ").upper()
-            name = input("Product Name: ")
-            cat = input("Category: ")
-            price = float(input("Price: "))
-            qty = int(input("Quantity: "))
-            reorder = int(input("Reorder Level: "))
+            name = input("Product Name: ").title()
+            cat = input("Category: ").title()
+            price = input_float("Price: ")
+            qty = input_int("Quantity: ")
+            reorder = input_int("Reorder Level: ")
             add_new(pid, name, cat, price, qty, reorder)
-            print("Product added successfully")
+            print(f"{name}, {cat} with {qty} Quantity added successfully")
 
-        elif choice == "2":
-            pid = input("Product ID: ").upper()
-            qty = int(input("Quantity to buy: "))
-            sale_id = ws2.max_row
-            if buy(pid, qty, sale_id):
-                print("Purchase successful")
+        elif choice == "2": 
+            remove_product()
 
-        elif choice == "3":
-            pid = input("Product ID: ").upper()
-            new_stock = int(input("New Stock Quantity: "))
-            if change_stock(pid, new_stock):
-                print("Stock updated")
+        elif choice == "3": 
+            cart = []
+
+            while True:
+                list_products()
+                product_name_input = input("\nEnter product name to add to cart (or type 'done' to finish): ").strip()
+                if product_name_input.lower() == "done":
+                    break
+
+                pid = get_pid_by_name(product_name_input)
+                if pid is None:
+                    print(f"Product '{product_name_input}' not found.")
+                    continue
+
+                qty = input_int(f"Quantity for {product_name_input}: ")
+                if qty <= 0:
+                    print("Quantity must be greater than 0.")
+                    continue
+
+   
+                current_stock = None
+                for row in ws1.iter_rows(min_row=2, values_only=True):
+                    if str(row[0]).strip().upper() == pid.upper():
+                        current_stock = safe_int(row[4])
+                        break
+                if current_stock is None:
+                    print("Error: Product not found in inventory.")
+                    continue
+                if qty > current_stock:
+                    print(f"Not enough stock for {product_name_input}. Only {current_stock} left.")
+                    continue
+
+    
+                for item in cart:
+                    if item['pid'] == pid:
+                        item['qty'] += qty
+                        break
+                else:
+                    price = get_price(pid)
+                    cart.append({'pid': pid, 'name': product_name_input, 'qty': qty, 'price': price})
+
+                print(f"{qty} x {product_name_input} added to cart.")
+
+            if not cart:
+                print("Cart is empty. Nothing to checkout.")
+                continue
+
+
+            print("\n====== SHOPPING CART ======")
+            total_amount = 0
+            for item in cart:
+                subtotal = item['qty'] * item['price']
+                total_amount += subtotal
+                print(f"{item['name']:<20} {item['qty']:<5} x {item['price']:<10} = {subtotal:<10}")
+            print(f"Total Amount: {total_amount}")
+
+            confirm_checkout = input("Proceed to checkout? (y/n): ").strip().lower()
+            if confirm_checkout != "y":
+                print("Checkout cancelled.")
+                continue
+
+            sale_id = generate_sale_id()
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Process each cart item
+            for item in cart:
+                # Update stock first
+                if not update_stock(item['pid'], item['qty']):
+                    print(f"Failed to process {item['name']}. Not enough stock.")
+                    continue
+
+                # Calculate subtotal
+                subtotal = item['qty'] * item['price']
+
+                # Save to sales worksheet
+                ws2.append([sale_id, now, item['pid'], item['qty'], item['price'], subtotal])
+
+                # Log inventory movement
+                log_movement(item['pid'], "SALE", item['qty'], "Customer purchase")
+
+            # Save changes to Excel
+            wb1.save(Inventory_Database)
+            wb2.save(Sales_Database)
+
+            print("\n====== RECEIPT ======")
+            print(f"SALE ID: {sale_id}")
+            print("-" * 40)
+            for item in cart:
+                subtotal = item['qty'] * item['price']
+                print(f"{item['name']:<20} {item['qty']:<5} x {item['price']:<10} = {subtotal:<10}")
+            print(f"Total Amount: {total_amount}")
+            print("Purchase successful!")
 
         elif choice == "4":
             pid = input("Product ID: ").upper()
-            price = get_price(pid)
-            if price is not None:
-                print(f"Price: {price}")
+            new_stock = input_int("New Stock Quantity: ")  
+            if change_stock(pid, new_stock):
+                print(f"Stock for {product_name(pid)} updated to {new_stock}")
             else:
-                print("Product not found")
+                print("Product not found.")
 
         elif choice == "5":
-            sale_id = input("Enter Sale ID: ")
-            receipt = print_receipt(sale_id)
-            if receipt:
-                print("RECEIPT")
-                print(f"Product ID : {receipt[0]}")
-                print(f"Quantity   : {receipt[1]}")
-                print(f"Unit Price : {receipt[2]}")
-                print(f"Total      : {receipt[3]}")
+            pid = input("Product ID: ").strip().upper()
+            if not pid:
+                print("Product ID cannot be empty.")
+                continue
+
+            price = get_price(pid)
+            if price is not None:
+                print(f"Price for {product_name(pid)} (ID: {pid}): {price}")
             else:
-                print("Sale not found")
+                print(f"Product with ID '{pid}' not found.")
 
         elif choice == "6":
-            list_products()
+            while True:
+                sale_id_input = input("Enter Sale ID: ")
+                if not sale_id_input.isdigit():
+                    print("Invalid Sale ID. Please enter a numeric value.")
+                    continue
+                sale_id = int(sale_id_input)
+                if sale_id <= 0:
+                    print("Sale ID must be greater than 0.")
+                    continue
+                break
+
+            receipt = print_receipt(sale_id)
+            if receipt:
+                print("\n====== RECEIPT ======")
+                print(f"Sale ID: {receipt['sale_id']}")
+                print(f"Date   : {receipt['date']}")
+                print("-" * 60)
+                grand_total = 0
+                print(f"{'Product ID':<10} {'Product':<10} {'Qty':<5} {'Unit Price':<10} {'Total':<10}")
+                print("-"*50)
+                for item in receipt['items']:
+                    print(f"{item['pid']:<10} {item['name']:<10} {item['qty']:<5} {item['price']:<10} {item['total']:<10}")
+                    grand_total += item['total']
+                print("-"*50)
+                print(f"{'TOTAL AMOUNT':<20} {'':<5} {'':<10} {grand_total:<10}")
+            else:
+                print("Sale not found.")
+
         elif choice == "7":
-            list_sales()
+            list_products()
         elif choice == "8":
-            list_inventory_movements()
+            list_sales()
         elif choice == "9":
-            sales_summary()
+            list_inventory_movements()
         elif choice == "10":
-            best_selling_products()
+            sales_summary()
         elif choice == "11":
-            low_stock_alert()
+            best_selling_products()
         elif choice == "12":
+            low_stock_alert()
+        elif choice == "13":
             save()
             print("Exiting system...")
             break
         else:
             print("Invalid option")
 
-# ----------------- RUN SYSTEM -----------------
 main_menu()
