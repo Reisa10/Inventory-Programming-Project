@@ -126,26 +126,83 @@ def update_stock(product_id, qty_sold):
 
 
 # ADDED AN UNSUCCESSFUL MESSAGE IF STOCK IS INSUFFICIENT
-def buy(product_id, qty, sales_id):
-    success, new_stock = update_stock(product_id, qty)
-    if not success:
-        return False, f"Not enough stock. Current stock: {new_stock}"
-    
-    price = get_price(product_id)
-    subtotal = safe_float(price) * safe_int(qty)
+def buy(cart_items):
+
+    sale_id = ws2.max_row
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ws2.append([sales_id, now, product_id, qty, price, subtotal])
+    total_amount = 0
+    sale_items = []
+
+    # First, check stock for all items
+    for item in cart_items:
+        pid = item['pid']
+        qty = safe_int(item['qty'])
+        success, available = update_stock(pid, qty)
+        if not success:
+            return {
+                'success': False,
+                'sale_id': sale_id,
+                'message': f"Not enough stock for {product_name(pid)}. Available: {available}",
+                'items': []
+            }
+
+    # All stock sufficient; proceed with sale
+    for item in cart_items:
+        pid = item['pid']
+        qty = safe_int(item['qty'])
+        price = get_price(pid)
+        subtotal = safe_float(price) * qty
+        ws2.append([sale_id, now, pid, qty, price, subtotal])
+        log_movement(pid, "SALE", qty, "Customer purchase")
+        total_amount += subtotal
+        sale_items.append({
+            'pid': pid,
+            'name': product_name(pid),
+            'qty': qty,
+            'unit_price': price,
+            'total': subtotal
+        })
+
     wb2.save(Sales_Database)
-    log_movement(product_id, "SALE", qty, "Customer purchase")
-    return True, subtotal
+
+    return {
+        'success': True,
+        'sale_id': sale_id,
+        'total_amount': total_amount,
+        'items': sale_items,
+        'message': "Sale completed successfully"
+    }
 
 
-# IMPROVED THE PRINT RECEIPT FOR BETTER READABILITY
-def print_receipt(sales_id):
+# IMPROVED THE PRINT RECEIPT FOR BETTER READABILITY AND HANDLING OF MULTIPLE ITEMS
+def print_receipt(sale_id):
+    items = []
+    sale_date = None
+
     for row in ws2.iter_rows(min_row=2, values_only=True):
-        if row[0] == safe_int(sales_id):
-            return {"product_id": row[2], "quantity": row[3], "unit_price": row[4], "total": row[5]}
+        if row[0] == safe_int(sale_id):
+            sale_date = row[1]
+            pid = row[2]
+            items.append({
+                'pid': pid,
+                'name': product_name(pid),
+                'qty': safe_int(row[3]),
+                'unit_price': safe_float(row[4]),
+                'total': safe_float(row[5])
+            })
+    if not items:
+        return None
+    return {'sale_id': safe_int(sale_id), 'date': sale_date, 'items': items}
+
+def get_pid_by_name(name):
+    name = name.strip().title()
+    for row in ws1.iter_rows(min_row=2, values_only=True):
+        pid, pname = row[0], row[1]
+        if pname and pname.strip().title() == name:
+            return pid
     return None
+
+
 
 # NEW FUNCTION
 def log_movement(product_id, movement_type, quantity, remarks):
