@@ -40,7 +40,7 @@ def safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
-# Safe input functions
+
 def input_int(prompt):
     while True:
         value = input(prompt)
@@ -66,21 +66,15 @@ def input_float(prompt):
             print("Invalid input. Please enter a number.")
 
 def log_movement(product_id, movement_type, quantity, remarks):
-    # Ensure product_id and movement_type are valid
     if not product_id or not movement_type:
         return
-
-    # Ensure quantity is integer
+        
     quantity = safe_int(quantity)
-
-    # Generate unique movement_id
-    # Starts at 1 if only headers exist
     movement_id = ws4.max_row
     if movement_id < 1:
         movement_id = 1
     else:
         movement_id += 1
-
     date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ws4.append([movement_id, product_id, movement_type, quantity, date_now, remarks])
     try:
@@ -89,7 +83,6 @@ def log_movement(product_id, movement_type, quantity, remarks):
         print("Error: Close the inventory_movements.xlsx file before logging movement.")
 
 def generate_sale_id():
-    # Ensure unique sale ID
     sale_id = ws2.max_row
     if sale_id < 1:
         sale_id = 1
@@ -297,7 +290,6 @@ def low_stock_alert():
     else:
         print("All products have sufficient stock.")
 
-# ----------------- TERMINAL MENU -----------------
 def main_menu():
     while True:
         print("\n====== SALES & INVENTORY SYSTEM ======")
@@ -314,7 +306,6 @@ def main_menu():
         print("11. Best-Selling Products")
         print("12. Low Stock Alerts")
         print("13. Exit")
-
 
         choice = input("Select option: ")
 
